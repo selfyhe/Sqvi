@@ -22,7 +22,7 @@ NowCoinPrice	当前持仓平均价格		数字型(number)	0
 BuyFee	平台买入手续费		数字型(number)	0.002
 SellFee	平台卖出手续费		数字型(number)	0.002
 MinStockAmount	限价单最小交易数量		数字型(number)	1
-DefaultProfit 默认止损点	数字型(number)	0.05
+DefaultProfit 默认止盈止损点	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
 ************************************************/
 
