@@ -132,7 +132,8 @@ function getStockDecimalPlace() {
 //从帐户中获取当前持仓信息
 function getAccountStocks(account){
 	var stocks = 0;
-	if(account) stocks = account.Stocks+account.FrozenStocks;
+	//if(account) stocks = account.Stocks+account.FrozenStocks;
+	if(account) stocks = account.Stocks;
 	return stocks;
 }
 
