@@ -22,6 +22,7 @@ NowCoinPrice	当前持仓平均价格		数字型(number)	0
 BuyFee	平台买入手续费		数字型(number)	0.002
 SellFee	平台卖出手续费		数字型(number)	0.002
 MinStockAmount	限价单最小交易数量		数字型(number)	1
+DefaultProfit 默认止损点	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
 ************************************************/
 
@@ -289,7 +290,7 @@ function onTick() {
     var baseBuyPrice = lastBuyPrice ? lastBuyPrice : avgPrice;
     var baseSellPrice = lastSellPrice ? lastSellPrice : avgPrice;
     Log("当前基准买入价格=", baseBuyPrice, "，当前基准卖出价格=", baseSellPrice);
-    if (crossNum < 0 && (dealAmount === 0 || baseBuyPrice === 0 || Ticker.Sell < baseBuyPrice * (1 - 0.05 - BuyFee))) {
+    if (crossNum < 0 && (dealAmount === 0 || baseBuyPrice === 0 || Ticker.Sell < baseBuyPrice * (1 - DefaultProfit - BuyFee))) {
 		if(dealAmount <= MaxCoinLimit){
 			//判断当前余额下可买入数量
 			var canpay = (MaxCoinLimit - dealAmount) * Ticker.Sell;
@@ -303,7 +304,7 @@ function onTick() {
 				if(dealAmount === 0 || baseBuyPrice === 0){
 					Log("程序运行之后第一次买入，以现价", Ticker.Sell, "，准备买入",opAmount,"个币。");
 				}else{
-					Log("当前市价", Ticker.Sell, " < 买入点", parseFloat((baseBuyPrice * (1 - 0.05 - BuyFee)).toFixed(PriceDecimalPlace)), "，准备买入",opAmount,"个币。");
+					Log("当前市价", Ticker.Sell, " < 买入点", parseFloat((baseBuyPrice * (1 - DefaultProfit - BuyFee)).toFixed(PriceDecimalPlace)), "，准备买入",opAmount,"个币。");
 				}
 				isOperated = true;
 				operatingStatus = OPERATE_STATUS_BUY;
@@ -315,10 +316,10 @@ function onTick() {
 			Log("当前持仓数量已经达到最大持仓量", MaxCoinLimit, "，不再买入，看机会卖出。");
 			_G("ToTheBiggest", true);
 		}
-    } else if (crossNum > 0 && Ticker.Buy > baseSellPrice * (1 + 0.05 + SellFee)) {
+    } else if (crossNum > 0 && Ticker.Buy > baseSellPrice * (1 + DefaultProfit + SellFee)) {
 		opAmount = (dealAmount - MinCoinLimit) > OperateFineness? OperateFineness : _N((dealAmount - MinCoinLimit),StockDecimalPlace);
 		if(dealAmount > MinCoinLimit && opAmount > MinStockAmount){
-			Log("当前市价", Ticker.Buy, " > 卖出点", parseFloat((baseSellPrice * (1 + 0.05 + SellFee)).toFixed(PriceDecimalPlace)), "，准备卖出",opAmount,"个币");
+			Log("当前市价", Ticker.Buy, " > 卖出点", parseFloat((baseSellPrice * (1 + DefaultProfit + SellFee)).toFixed(PriceDecimalPlace)), "，准备卖出",opAmount,"个币");
 			isOperated = true;
 			operatingStatus = OPERATE_STATUS_SELL;
 			orderid = exchange.Sell(Ticker.Buy, opAmount);
