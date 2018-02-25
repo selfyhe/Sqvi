@@ -21,6 +21,8 @@ OperateFineness	买卖操作的粒度	数字型(number)	100
 NowCoinPrice	当前持仓平均价格		数字型(number)	0
 BuyFee	平台买入手续费		数字型(number)	0.002
 SellFee	平台卖出手续费		数字型(number)	0.002
+PriceDecimalPlace	交易价格小数位		数字型(number)	2 
+StockDecimalPlace	交易数量小数位		数字型(number)	4 
 MinStockAmount	限价单最小交易数量		数字型(number)	1
 DefaultProfit 默认止盈止损点	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
@@ -33,8 +35,6 @@ var OPERATE_STATUS_BUY = 0;
 var OPERATE_STATUS_SELL = 1;
 
 //全局变量定义
-var PriceDecimalPlace = 2;
-var StockDecimalPlace = 2;
 var TotalProfit = 0;
 var lastOrderId = 0;	//上一手订单编号
 var operatingStatus = OPERATE_STATUS_NONE;	//正在操作的状态
@@ -122,14 +122,6 @@ function Cross(a, b) {
     return crossNum;
 }
 
-//获得价格的小数位数
-function getPriceDecimalPlace() {
-    return GetTicker().Last.toString().split(".")[1].length;
-}
-//获得交易量的小数位数
-function getStockDecimalPlace() {
-	return exchange.GetMinStock().toString().split(".")[1].length;
-}
 //从帐户中获取当前持仓信息
 function getAccountStocks(account){
 	var stocks = 0;
@@ -355,9 +347,6 @@ function main() {
     LogReset();
 	Log("启动数字货币现货长线量化价值投资策略程序...");  
 
-	//获取价格及交易量的小数位
-    PriceDecimalPlace = getPriceDecimalPlace();
-    StockDecimalPlace = getStockDecimalPlace();
     //设置小数位，第一个为价格小数位，第二个为数量小数位
     exchange.SetPrecision(PriceDecimalPlace, StockDecimalPlace);
 	Log("设置了交易平台价格小数位为",PriceDecimalPlace,"数额小数位为",StockDecimalPlace);  
