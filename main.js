@@ -1,5 +1,5 @@
 /**************************************
-现货长线量化价值投资策略V1.0
+现货长线量化价值投资策略V1.1
 1.设定一个币种最小持仓量和最大持仓量
 2.当行情处于下降通道，且市场价格低于当前持仓平均价格或上一次买入的价格时，买入设定的操作粒度，直到最大持仓量
 3.当行情处于上升通道，且市场价格高于当前持仓平均价格或上一次卖出的价格时，卖出设定的操作粒度，直到最小持仓量，当到达最小持仓量的时候，平均价格清0，使得程序可以重新买入新量。
@@ -18,12 +18,16 @@
 MaxCoinLimit	最大持仓量	数字型(number)	1200
 MinCoinLimit	最小持仓量	数字型(number)	600
 OperateFineness	买卖操作的粒度	数字型(number)	100
-NowCoinPrice	当前持仓平均价格		数字型(number)	0
+NowCoinPrice	当前持仓平均价格/指导买入价格	数字型(number)	0
 BuyFee	平台买入手续费		数字型(number)	0.002
 SellFee	平台卖出手续费		数字型(number)	0.002
+PriceDecimalPlace	交易对价格小数位		数字型(number)	2 
+StockDecimalPlace	交易对数量小数位		数字型(number)	4 
 MinStockAmount	限价单最小交易数量		数字型(number)	1
-DefaultProfit 默认止盈止损点	数字型(number)	0.05
+DefaultProfit 指导买入卖出点	是数值不是百分比	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
+策略交互如下
+NewPrice	更新持仓价格	数字型(number) 0
 ************************************************/
 
 //全局常数定义
@@ -33,8 +37,6 @@ var OPERATE_STATUS_BUY = 0;
 var OPERATE_STATUS_SELL = 1;
 
 //全局变量定义
-var PriceDecimalPlace = 2;
-var StockDecimalPlace = 2;
 var TotalProfit = 0;
 var lastOrderId = 0;	//上一手订单编号
 var operatingStatus = OPERATE_STATUS_NONE;	//正在操作的状态
@@ -122,63 +124,52 @@ function Cross(a, b) {
     return crossNum;
 }
 
-//获得价格的小数位数
-function getPriceDecimalPlace() {
-    return GetTicker().Last.toString().split(".")[1].length;
-}
-//获得交易量的小数位数
-function getStockDecimalPlace() {
-	return exchange.GetMinStock().toString().split(".")[1].length;
-}
 //从帐户中获取当前持仓信息
 function getAccountStocks(account){
 	var stocks = 0;
-	//if(account) stocks = account.Stocks+account.FrozenStocks;
 	if(account) stocks = account.Stocks;
 	return stocks;
 }
 
 //处理卖出成功之后数据的调整
-function changeDataForSell(order){
-	//累加成交量
-	var dealAmount = _G("DealAmount");
-	dealAmount -= order.DealAmount;
-	_G("DealAmount",dealAmount);
-	
-	//计算持仓总价
-	var Total = _G("Total");
-	Total -= parseFloat((order.AvgPrice * order.DealAmount).toFixed(PriceDecimalPlace));
-	_G("Total",Total);
-	
-	//记录盈利情况
+function changeDataForSell(account,order){
 	//算出扣除平台手续费后实际的数量
-	var actualAmount = order.DealAmount*(1 - SellFee);
 	var avgPrice = _G("AvgPrice");
-	var profit = parseFloat(((order.AvgPrice - avgPrice) * actualAmount).toFixed(PriceDecimalPlace));
+	var profit = parseFloat(((order.AvgPrice - avgPrice) * order.DealAmount).toFixed(PriceDecimalPlace));
 	TotalProfit += profit;
 	LogProfit(TotalProfit);
 	
 	if(order.DealAmount === order.Amount ){
-		Log("订单",lastOrderId,"交易成功!平均卖出价格：",order.AvgPrice,"，平均持仓价格：",avgPrice,"，卖出数量：",order.DealAmount,"，浮动盈利：",profit,"，累计盈利：",TotalProfit);
+		Log("订单",lastOrderId,"交易成功!平均卖出价格：",order.AvgPrice,"，平均持仓价格：",avgPrice,"，卖出数量：",order.DealAmount,"，毛收盈：",profit,"，累计毛收盈：",TotalProfit);
 	}else{
-		Log("订单",lastOrderId,"部分成交!卖出数量：",order.DealAmount,"，剩余数量：",order.Amount - order.DealAmount,"，平均卖出价格：",order.AvgPrice,"，平均持仓价格：",avgPrice,"，浮动盈利：",profit,"，累计盈利：",TotalProfit);
+		Log("订单",lastOrderId,"部分成交!卖出数量：",order.DealAmount,"，剩余数量：",order.Amount - order.DealAmount,"，平均卖出价格：",order.AvgPrice,"，平均持仓价格：",avgPrice,"，毛收盈：",profit,"，累计毛收盈：",TotalProfit);
 	}
 	
 	//设置最后一次卖出价格
 	if(order.DealAmount>(order.Amount/2)){
 		_G("lastSellPrice",order.AvgPrice);
 	}
+	
+	//如果当前持仓数量小于最小交量数量时，价格重置为0，方便短线操作
+	var coinAmount = getAccountStocks(account); //从帐户中获取当前持仓信息
+	if(coinAmount <= MinStockAmount){
+		var newAvgPrive = parseFloat(((order.AvgPrice+avgPrice)/2).toFixed(PriceDecimalPlace));
+		Log("成功空仓持币，将指导买入价从原持仓均价",avgPrice,"调整为",newAvgPrive);
+		_G("AvgPrice",newAvgPrive);
+		_G("lastBuyPrice",0);
+		_G("lastSellPrice",0);
+	}
 }
 
 //检测卖出订单是否成功
-function checkSellFinish(){
+function checkSellFinish(account){
     var ret = true;
 	var order = exchange.GetOrder(lastOrderId);
 	if(order.Status === ORDER_STATE_CLOSED ){
-		changeDataForSell(order);
+		changeDataForSell(account,order);
 	}else if(order.Status === ORDER_STATE_PENDING ){
 		if(order.DealAmount){
-			changeDataForSell(order);
+			changeDataForSell(account,order);
 		}else{
 			Log("订单",lastOrderId,"未有成交!卖出价格：",order.Price,"，当前买一价：",exchange.GetTicker().Buy,"，价格差：",_N(order.Price - exchange.GetTicker().Buy, PriceDecimalPlace));
 		}
@@ -191,28 +182,22 @@ function checkSellFinish(){
 }
 
 //处理买入成功之后数据的调整
-function changeDataForBuy(order){
-	//算出扣除平台手续费后实际的数量
-	var actualAmount = order.DealAmount*(1 - BuyFee);
-	
-	//累加成交量
-	var dealAmount = _G("DealAmount");
-	dealAmount += actualAmount;
-	_G("DealAmount",dealAmount);
+function changeDataForBuy(account,order){
+	//读取原来的持仓均价和持币总量
+	var avgPrice = _G("AvgPrice");
+	var coinAmount = getAccountStocks(account);
 	
 	//计算持仓总价
-	var Total = _G("Total");
-	Total += parseFloat((order.AvgPrice * actualAmount).toFixed(PriceDecimalPlace));
-	_G("Total",Total);
+	var Total = parseFloat((avgPrice*(coinAmount-order.DealAmount*(1-BuyFee))+order.AvgPrice * order.DealAmount).toFixed(PriceDecimalPlace));
 	
-	//计算平均价格
-	var avgPrice = parseFloat((Total / dealAmount).toFixed(PriceDecimalPlace));
+	//计算并调整平均价格
+	avgPrice = parseFloat((Total / coinAmount).toFixed(PriceDecimalPlace));
 	_G("AvgPrice",avgPrice);
 	
 	if(order.DealAmount === order.Amount ){
-		Log("买入订单",lastOrderId,"交易成功!成交均价：",order.AvgPrice,"，数量：",order.DealAmount,"，持仓价格调整到：",avgPrice,"，总持仓数量：",dealAmount,"，持币价值：",Total);			
+		Log("买入订单",lastOrderId,"交易成功!成交均价：",order.AvgPrice,"，数量：",order.DealAmount,"，持仓价格调整到：",avgPrice,"，总持仓数量：",coinAmount,"，总持币成本：",Total);			
 	}else{
-		Log("买入订单",lastOrderId,"部分成交!成交均价：",order.AvgPrice,"，数量：",order.DealAmount,"，持仓价格调整到：",avgPrice,"，总持仓数量：",dealAmount,"，持币价值：",Total);			
+		Log("买入订单",lastOrderId,"部分成交!成交均价：",order.AvgPrice,"，数量：",order.DealAmount,"，持仓价格调整到：",avgPrice,"，总持仓数量：",coinAmount,"，总持币成本：",Total);			
 	}
 	
 	//设置最后一次买入价格,仅在买入量超过一半的情况下调整最后买入价格，没到一半继续买入
@@ -230,15 +215,15 @@ function changeDataForBuy(order){
 }
 
 //检测买入订单是否成功
-function checkBuyFinish(){
+function checkBuyFinish(account){
 	var order = exchange.GetOrder(lastOrderId);
 	if(order.Status === ORDER_STATE_CLOSED ){
 		//处理买入成功后的数据调整
-		changeDataForBuy(order);
+		changeDataForBuy(account,order);
 	}else if(order.Status === ORDER_STATE_PENDING ){
 		if(order.DealAmount){
 			//处理买入成功后的数据调整
-			changeDataForBuy(order);
+			changeDataForBuy(account,order);
 		}else{
 			Log("买入订单",lastOrderId,"未有成交!订单买入价格：",order.Price,"，当前卖一价：",exchange.GetTicker().Sell,"，价格差：",_N(order.Price - exchange.GetTicker().Sell, PriceDecimalPlace));
 		}
@@ -249,19 +234,86 @@ function checkBuyFinish(){
 	}
 }
 
+//通过交互按钮更新持仓价格
+function updatePrice(coinAmount){
+	var avgPrice = _G("AvgPrice");
+	if(!avgPrice){
+		//平均价格为空或0，说明新启动，尝试从参数读入并写入存储
+		avgPrice = NowCoinPrice;
+		_G("AvgPrice",avgPrice);
+	}
+    var cmd=GetCommand();
+	if(cmd){
+		var cmds=cmd.split(":");
+		if(cmds[0] == "NewPrice"){
+			if(coinAmount > 0 && cmds[1] == 0){
+				Log("当前有持仓币数，但没有尝试更新持仓价格为0，拒绝操作！！！");
+			}else{
+				Log("更新持仓价格为",cmds[1]);
+				_G("AvgPrice",cmds[1]);
+				avgPrice = cmds[1];
+			}
+		}
+	}
+	return avgPrice;
+}
+
+//初始运行检测
+function checkArgs(){
+	var ret = true;
+	//检测参数的填写
+	if(MaxCoinLimit === 0){
+		Log("最大持仓量为0，必须填写此字段。");
+		ret = false;
+	}
+	if(OperateFineness === 0){
+		Log("卖操作的粒度为0，必须填写此字段。");
+		ret = false;
+	}
+	if(NowCoinPrice === 0){
+		Log("当前持仓平均价格/指导买入价格为0，必须填写此字段。");
+		ret = false;
+	}
+	if(BuyFee === 0 || SellFee === 0){
+		Log("平台买卖手续费为0，必须填写此字段。");
+		ret = false;
+	}
+	if(PriceDecimalPlace === 0 || StockDecimalPlace === 0){
+		Log("交易对价格/数量小数位为0，必须填写此字段。");
+		ret = false;
+	}
+	if(MinStockAmount === 0){
+		Log("限价单最小交易数量为0，必须填写此字段。");
+		ret = false;
+	}
+	if(DefaultProfit === 0){
+		Log("指导买入卖出点为0，必须填写此字段。");
+		ret = false;
+	}
+	return ret;
+}
+
 //定时任务，主业务流程 
 function onTick() {
 	//获取实时信息
 	var Account = GetAccount();
     var Ticker = GetTicker();
 	Log("账户余额", Account.Balance, "，冻结余额", Account.FrozenBalance, "可用币数", Account.Stocks, "，冻结币数", Account.FrozenStocks, "，当前币价", Ticker.Sell );
+
+	//处理持仓价格变量
+    var coinAmount = getAccountStocks(Account); //从帐户中获取当前持仓信息
+    var avgPrice = updatePrice(coinAmount);
+	if(coinAmount > MinStockAmount && avgPrice === 0){
+		Log("当前有持仓币数，但没有填入持仓价值！！！");
+		return;
+	}
 	
 	//检测上一个订单，成功就改状态，不成功就取消重新发
 	if(lastOrderId && operatingStatus != OPERATE_STATUS_NONE){
 		if(operatingStatus > OPERATE_STATUS_BUY){
-			checkSellFinish();
+			checkSellFinish(Account);
 		}else{
-			checkBuyFinish();
+			checkBuyFinish(Account);
 		}
 		//刚才上一次订单ID清空，不再重复判断
 		lastOrderId = 0;
@@ -269,17 +321,16 @@ function onTick() {
 		operatingStatus = OPERATE_STATUS_NONE;
 	}
 
-    //测试平均价格的调整
+    //定义并初始化其他变量
     var lastBuyPrice = _G("lastBuyPrice") ? _G("lastBuyPrice") : 0;
     var lastSellPrice = _G("lastSellPrice") ? _G("lastSellPrice") : 0;
-    var avgPrice = _G("AvgPrice") ? _G("AvgPrice") : NowCoinPrice;
 	var historyMinPrice = _G("historyMinPrice") ? _G("historyMinPrice") : 0;
-    var dealAmount = _G("DealAmount") ? _G("DealAmount") : getAccountStocks(Account); //程序初次在机器人运行时，从帐户中获取当前持仓信息
-    var Total = _G("Total") ? _G("Total") : avgPrice*dealAmount;	//程序初次在机器人运行时，从帐户中获取当前持仓信息和平均价格算出来
+    var Total = avgPrice*coinAmount;	//从帐户中获取当前持仓信息和平均价格算出来
 	var opAmount = 0;
     var orderid = 0;
 	var isOperated = false;	
-	Log("历史最低均价", historyMinPrice, "，当前持仓均价", avgPrice, "，持仓数量", _N(dealAmount,StockDecimalPlace), "，上一次买入", lastBuyPrice, "，上一次卖出", lastSellPrice, "，总持资金", _N(Total, PriceDecimalPlace), "，累计收益", _N(TotalProfit, PriceDecimalPlace));
+	Log("历史最低均价", historyMinPrice, "，当前持仓均价", avgPrice, "，持币数量", _N(coinAmount,StockDecimalPlace), "，上一次买入", lastBuyPrice, "，上一次卖出", lastSellPrice, "，总持币成本", _N(Total, PriceDecimalPlace), "，累计毛收益", _N(TotalProfit, PriceDecimalPlace));
+
 	//获取行情数据
     var crossNum = Cross(5, 15);
     if (crossNum > 0) {
@@ -290,10 +341,10 @@ function onTick() {
     var baseBuyPrice = lastBuyPrice ? lastBuyPrice : avgPrice;
     var baseSellPrice = lastSellPrice ? lastSellPrice : avgPrice;
     Log("当前基准买入价格=", baseBuyPrice, "，当前基准卖出价格=", baseSellPrice);
-    if (crossNum < 0 && (dealAmount === 0 || baseBuyPrice === 0 || Ticker.Sell < baseBuyPrice * (1 - DefaultProfit - BuyFee))) {
-		if(dealAmount <= MaxCoinLimit){
+    if (crossNum < 0 && (Ticker.Sell < baseBuyPrice * (1 - DefaultProfit - BuyFee))) {
+		if(coinAmount <= MaxCoinLimit){
 			//判断当前余额下可买入数量
-			var canpay = (MaxCoinLimit - dealAmount) * Ticker.Sell;
+			var canpay = (MaxCoinLimit - coinAmount) * Ticker.Sell;
 			if(Account.Balance < canpay){
 				canpay = Account.Balance;
 			}
@@ -301,8 +352,8 @@ function onTick() {
 			opAmount = canbuy > OperateFineness? OperateFineness : canbuy;
 			opAmount = _N(opAmount, StockDecimalPlace);
 			if(opAmount > MinStockAmount){
-				if(dealAmount === 0 || baseBuyPrice === 0){
-					Log("程序运行之后第一次买入，以现价", Ticker.Sell, "，准备买入",opAmount,"个币。");
+				if(coinAmount <= MinStockAmount || baseBuyPrice === 0){
+					Log("程序运行之后或卖空之后第一次买入，以现价", Ticker.Sell, "，准备买入",opAmount,"个币。");
 				}else{
 					Log("当前市价", Ticker.Sell, " < 买入点", parseFloat((baseBuyPrice * (1 - DefaultProfit - BuyFee)).toFixed(PriceDecimalPlace)), "，准备买入",opAmount,"个币。");
 				}
@@ -317,8 +368,8 @@ function onTick() {
 			_G("ToTheBiggest", true);
 		}
     } else if (crossNum > 0 && Ticker.Buy > baseSellPrice * (1 + DefaultProfit + SellFee)) {
-		opAmount = (dealAmount - MinCoinLimit) > OperateFineness? OperateFineness : _N((dealAmount - MinCoinLimit),StockDecimalPlace);
-		if(dealAmount > MinCoinLimit && opAmount > MinStockAmount){
+		opAmount = (coinAmount - MinCoinLimit) > OperateFineness? OperateFineness : _N((coinAmount - MinCoinLimit),StockDecimalPlace);
+		if(coinAmount > MinCoinLimit && opAmount > MinStockAmount){
 			Log("当前市价", Ticker.Buy, " > 卖出点", parseFloat((baseSellPrice * (1 + DefaultProfit + SellFee)).toFixed(PriceDecimalPlace)), "，准备卖出",opAmount,"个币");
 			isOperated = true;
 			operatingStatus = OPERATE_STATUS_SELL;
@@ -351,13 +402,14 @@ function onTick() {
 	}
 }
 
+
 function main() {
     LogReset();
 	Log("启动数字货币现货长线量化价值投资策略程序...");  
+	
+	//检测参数的填写
+	if(!checkArgs()) return;
 
-	//获取价格及交易量的小数位
-    PriceDecimalPlace = getPriceDecimalPlace();
-    StockDecimalPlace = getStockDecimalPlace();
     //设置小数位，第一个为价格小数位，第二个为数量小数位
     exchange.SetPrecision(PriceDecimalPlace, StockDecimalPlace);
 	Log("设置了交易平台价格小数位为",PriceDecimalPlace,"数额小数位为",StockDecimalPlace);  
