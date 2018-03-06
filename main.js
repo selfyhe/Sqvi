@@ -27,7 +27,7 @@ MinStockAmount	限价单最小交易数量		数字型(number)	1
 DefaultProfit 指导买入卖出点	是数值不是百分比	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
 策略交互如下
-NewPrice	更新持仓价格	数字型(number) 0
+NewPrice	更新持仓平均价格/指导买入价格	数字型(number) 0
 ************************************************/
 
 //全局常数定义
@@ -37,7 +37,6 @@ var OPERATE_STATUS_BUY = 0;
 var OPERATE_STATUS_SELL = 1;
 
 //全局变量定义
-var TotalProfit = 0;
 var lastOrderId = 0;	//上一手订单编号
 var operatingStatus = OPERATE_STATUS_NONE;	//正在操作的状态
 
@@ -135,8 +134,10 @@ function getAccountStocks(account){
 function changeDataForSell(account,order){
 	//算出扣除平台手续费后实际的数量
 	var avgPrice = _G("AvgPrice");
-	var profit = parseFloat(((order.AvgPrice - avgPrice) * order.DealAmount).toFixed(PriceDecimalPlace));
+	var TotalProfit = _G("TotalProfit");
+	var profit = parseFloat((order.AvgPrice*order.DealAmount*(1-SellFee) - avgPrice*order.DealAmount*(1+BuyFee)).toFixed(PriceDecimalPlace));
 	TotalProfit += profit;
+	_G("TotalProfit", TotalProfit);
 	LogProfit(TotalProfit);
 	
 	if(order.DealAmount === order.Amount ){
@@ -267,7 +268,7 @@ function checkArgs(){
 		ret = false;
 	}
 	if(OperateFineness === 0){
-		Log("卖操作的粒度为0，必须填写此字段。");
+		Log("买卖操作的粒度为0，必须填写此字段。");
 		ret = false;
 	}
 	if(NowCoinPrice === 0){
@@ -290,6 +291,7 @@ function checkArgs(){
 		Log("指导买入卖出点为0，必须填写此字段。");
 		ret = false;
 	}
+	Log("接收参数如下：最大持仓量", MaxCoinLimit, "，买卖操作的粒度", OperateFineness, "，当前持仓平均价格/指导买入价格", NowCoinPrice, "，平台买卖手续费（", BuyFee, SellFee,"），交易对价格/数量小数位（", PriceDecimalPlace, StockDecimalPlace,"），限价单最小交易数量", MinStockAmount,"，指导买入卖出点", DefaultProfit);
 	return ret;
 }
 
@@ -329,7 +331,7 @@ function onTick() {
 	var opAmount = 0;
     var orderid = 0;
 	var isOperated = false;	
-	Log("历史最低均价", historyMinPrice, "，当前持仓均价", avgPrice, "，持币数量", _N(coinAmount,StockDecimalPlace), "，上一次买入", lastBuyPrice, "，上一次卖出", lastSellPrice, "，总持币成本", _N(Total, PriceDecimalPlace), "，累计毛收益", _N(TotalProfit, PriceDecimalPlace));
+	Log("历史最低均价", historyMinPrice, "，当前持仓均价", avgPrice, "，持币数量", _N(coinAmount,StockDecimalPlace), "，上一次买入", lastBuyPrice, "，上一次卖出", lastSellPrice, "，总持币成本", _N(Total, PriceDecimalPlace));
 
 	//获取行情数据
     var crossNum = Cross(5, 15);
