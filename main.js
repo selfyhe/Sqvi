@@ -29,6 +29,7 @@ MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
 策略交互如下
 NewAvgPrice	更新持仓平均价格	只更新均价不更新上一次买入卖出价，用于手动操作买入之后的均价调整    数字型(number) 0
 GuideBuyPrice	更新指导买入价格    只更新上一个买入价，不更新持仓均价，用于想调节买入点	数字型(number) 0
+NewProfitPoint	更新买入卖出点数	根据行情的变化，调整买入卖出的点数，是数值不是百分比	数字型(number) 0
 ************************************************/
 
 //全局常数定义
@@ -262,6 +263,15 @@ function updatePrice(coinAmount){
 				Log("更新指导买入价格为",cmds[1]);
                 _G("lastBuyPrice",cmds[1]);
 			}
+		}else if(cmds[0] == "NewProfitPoint"){
+			if(cmds[1] <= BuyFee){
+				Log("输入的买入卖出点数小于平台交易费，请确认参数是否正确！！！");
+			}else if(cmds[1] > 0.5){
+				Log("输入的买入卖出点数过大可能无法成交，请确认参数是否正确！！！");
+			}else{
+				Log("更新买入卖出点数为",cmds[1]);
+                DefaultProfit = cmds[1];
+			}
 		}
 	}
 	return avgPrice;
@@ -308,7 +318,8 @@ function onTick() {
 	//获取实时信息
 	var Account = GetAccount();
     var Ticker = GetTicker();
-	Log("账户余额", Account.Balance, "，冻结余额", Account.FrozenBalance, "可用币数", Account.Stocks, "，冻结币数", Account.FrozenStocks, "，当前币价", Ticker.Sell );
+	var stockValue = parseFloat(((Account.Stocks+Account.FrozenStocks)*Ticker.Last).toFixed(PriceDecimalPlace));
+	Log("账户余额", Account.Balance, "，冻结余额", Account.FrozenBalance, "，可用币数", Account.Stocks, "，冻结币数", Account.FrozenStocks, "，当前持币价值", stockValue );
 
 	//处理持仓价格变量
     var coinAmount = getAccountStocks(Account); //从帐户中获取当前持仓信息
@@ -350,7 +361,7 @@ function onTick() {
     }
     var baseBuyPrice = lastBuyPrice ? lastBuyPrice : avgPrice;
     var baseSellPrice = lastSellPrice ? lastSellPrice : avgPrice;
-    Log("当前基准买入价格=", baseBuyPrice, "，当前基准卖出价格=", baseSellPrice);
+    Log("当前基准买入价格=", baseBuyPrice, "，当前基准卖出价格=", baseSellPrice, "，买入卖出点", DefaultProfit, "，当前币价", Ticker.Sell);
     if (crossNum < 0 && (Ticker.Sell < baseBuyPrice * (1 - DefaultProfit - BuyFee))) {
 		if(coinAmount <= MaxCoinLimit){
 			//判断当前余额下可买入数量
