@@ -27,7 +27,8 @@ MinStockAmount	限价单最小交易数量		数字型(number)	1
 DefaultProfit 指导买入卖出点	是数值不是百分比	数字型(number)	0.05
 MAType	均线算法	下拉框(selected)	EMA|MA|AMA(自适应均线)
 策略交互如下
-NewPrice	更新持仓平均价格/指导买入价格	数字型(number) 0
+NewAvgPrice	更新持仓平均价格	只更新均价不更新上一次买入卖出价，用于手动操作买入之后的均价调整    数字型(number) 0
+GuideBuyPrice	更新指导买入价格    只更新上一个买入价，不更新持仓均价，用于想调节买入点	数字型(number) 0
 ************************************************/
 
 //全局常数定义
@@ -246,13 +247,20 @@ function updatePrice(coinAmount){
     var cmd=GetCommand();
 	if(cmd){
 		var cmds=cmd.split(":");
-		if(cmds[0] == "NewPrice"){
-			if(coinAmount > 0 && cmds[1] == 0){
+		if(cmds[0] == "NewAvgPrice"){
+			if(coinAmount > MinStockAmount && cmds[1] == 0){
 				Log("当前有持仓币数，但没有尝试更新持仓价格为0，拒绝操作！！！");
 			}else{
 				Log("更新持仓价格为",cmds[1]);
 				_G("AvgPrice",cmds[1]);
 				avgPrice = cmds[1];
+			}
+		}else if(cmds[0] == "GuideBuyPrice"){
+			if(coinAmount > MinStockAmount && cmds[1] == 0){
+				Log("当前有持仓币数，但不能设置价格为0的指导价格！！！");
+			}else{
+				Log("更新指导买入价格为",cmds[1]);
+                _G("lastBuyPrice",cmds[1]);
 			}
 		}
 	}
